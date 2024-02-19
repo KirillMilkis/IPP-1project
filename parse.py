@@ -12,38 +12,51 @@ class ProcessedInstrunction:
         self.args = {}
         self.args_types = {}
         self.arg_count = arg_count
+        self.xml_tree = None
+        self.instr_tree = None
+
+    
+    
+    # @property
+    # def args(self, order):
+    #     return self.args[order]
+
+    # @args.setter
+    # def args(self, value):
+    #     raise AttributeError("Use arg_set method to set args.")
 
     def arg_set(self, arg, arg_type):
         for i in range(1, self.arg_count):
-            if i in self.args().keys():
+            if i in self.args.keys():
                 continue
             self.args[i] = arg
             self.args_types[i] = arg_type
+            break
+
+    # @property
+    # def args_types(self, order):
+    #     return self.args_types[order]
+
+    # def begin_xml_stdout(self):
+
+    #     self.xml_tree = ET.Element('program')
+
+    def create_instr_line(self, xml_tree):
+        self.instr_tree =  ET.SubElement(xml_tree, 'instruction', order = str(self.order), opcode = self.opcode)
+
+    def rec_to_instr_line(self):
+       
+        for num in range(1,self.arg_count):
+            if not hasattr(self,f"arg{num}"):
+                ET.SubElement(self.instr_tree, 'arg{num}', type = self.args_types[num], text = self.args[num])
+            
     
-    @property
-    def args(self, order):
-        return self.args[order]
+    def get_instr_tree(self):
+        return self.instr_tree
 
-    @property
-    def args_types(self, order):
-        return self.args_types[order]
+    # def write_instr_line(self):
 
-    def begin_xml_stdout(self, xml_root):
-
-        xml_tree = ET.Element('program')
-
-    def create_instr_line(self):
-        
-        instrunction =  ET.SubElement(xml_doc, order = self.order, opcode = self.opcode)
-        for num in range(1,self.max_arg_count):
-            if hasattr(self,f"arg{num}"):
-                ET.subElement(instruction, 'arg{num}', type = self.arg1_type, text = self.args[num])
-            else:
-                return ERROR_OTHER
-
-    def write_instr_line(self):
-
-        xml_tree.write(sys.stdout, encoding='unicode')
+    #     self.xml_tree.write(sys.stdout, encoding='unicode')
         
 
     
@@ -125,20 +138,21 @@ class Parser:
 
 
     def parse_const(self, current_instr, researched_word):
+
         
         if re.fullmatch("^int@-?[0-9]*$", researched_word):
-            current_instr.arg_set(cut_const(self,self.line[0]), "int")
+            current_instr.arg_set(self.cut_const(self.line[0]), "int")
             print("writing int to xml")
         elif re.fullmatch("^bool@(bool|true)$", researched_word):
-            current_instr.arg_set(cut_const(self,self.line[0]), "bool")
+            current_instr.arg_set(self.cut_const(self.line[0]), "bool")
             # write bool to xml
             print("writing bool to xml")
-        elif re.fullmatch("^string@.([\p{L}]*[0-9]*(\\[0-9]{3})?))", researched_word):
-            current_instr.arg_set(cut_const(self,self.line[0]), "string")
+        elif re.fullmatch(r"^string@.([\w]*[0-9]*(\\[0-9]{3})?))", researched_word):
+            current_instr.arg_set(self.cut_const(self.line[0]), "string")
             #write string to xml
             print("writing string to xml")
         elif re.fullmatch("^nil@nil$", researched_word):
-            current_instr.arg_set(cut_const(self,self.line[0]), "nil")
+            current_instr.arg_set(self.cut_const(self.line[0]), "nil")
             #write nil to xml
             print("writing nil to xml")
 
@@ -146,33 +160,41 @@ class Parser:
 
         researched_line = self.current_line
 
-        label_pattern = re.compile("^[a-zA-Z$&%*!?-][\S]*$")
-        var_pattern = re.compile("^(LF|TF|GF)@[a-zA-Z_$&%*!?-][\S]**$")
-        const_pattern = re.compile("^(bool|nil|int|string)@[a-zA-Z_$&%*!?-][\S]**$")
+        label_pattern = re.compile(r"^[a-zA-Z$&%*!?-][\S]*$")
+        var_pattern = re.compile(r"^(LF|TF|GF)@[a-zA-Z_$&%*!?-][\S]*$")
+        const_pattern = re.compile(r"^(bool|nil|int|string)@[a-zA-Z_$&%*!?-][\S]*$")
 
-        current_instr = ProcessedInstrunction(self.instr_num, instr_sample[0].higher)
-
+        current_instr = ProcessedInstrunction(self.instr_num, instr_sample[0].upper())
+        xml_tree = ET.Element('program')
+        current_instr.create_instr_line(xml_tree)
+       
         for key_word in instr_sample[1:]:
 
-            if not researched_line[0]:
+            try:
+                t = researched_line[0]
+            except IndexError:
                 return ERROR_OTHER
+            
 
             if key_word == "var":
                 
                 if (re.fullmatch(var_pattern, researched_line[0])):
                     current_instr.arg_set(researched_line[0], 'var')
-                    researched_line.pop()
+                    researched_line.pop(0)
+                    
                 else:
                     return ERROR_OTHER
 
             elif key_word == "symb":
                
                 if (re.fullmatch(const_pattern, researched_line[0])):
-                    self.parse_const(self, current_instr, researched_line[0])
-                    researched_line.pop()
+                    self.parse_const(self, current_instr, researched_line[0])           
+                    researched_line.pop(0)
+
                 elif (re.fullmatch(var_pattern, researched_line[0])):
                     current_instr.arg_set(researched_line[0], 'var')
-                    researched_line.pop()
+                    researched_line.pop(0)
+
                 else:
                     return ERROR_OTHER
                     
@@ -180,7 +202,8 @@ class Parser:
 
                 if(re.fullmatch(label_pattern, researched_line[0])):
                     current_instr.arg_set(researched_line[0], 'label')
-                    researched_line.pop()
+                    researched_line.pop(0)
+
                 else:
                     return ERROR_OTHER
                     
@@ -191,6 +214,10 @@ class Parser:
                 return 
             else:
                 return ERROR_OTHER  
+            
+        
+        current_instr.rec_to_instr_line()
+        ET.ElementTree(xml_tree).write(sys.stdout, encoding='unicode')
                 
 
     def get_next_line(self):
@@ -201,7 +228,7 @@ class Parser:
             tokens.append(word)
 
         if tokens:    
-            self.line = tokens.copy()
+            self.current_line = tokens.copy()
             return True
 
         return False    
@@ -210,7 +237,7 @@ class Parser:
     def parse_line(self):
 
         # check for comment 
-        if self.line[0].lower == "#": 
+        if self.current_line[0].lower == "#": 
                 return 0
         
         # check for ipp24 instrunction_samples
@@ -218,12 +245,12 @@ class Parser:
         found = False
         for inst in Parser.instruction_samples:
 
-            a = self.line[0].lower()
-            print(a)
-            if self.line[0].lower() == inst[0].lower():
+            print('function parse_line')
+            if self.current_line[0].lower() == inst[0].lower():
                 found = True
-                self.parse_instr(inst)
-                continue
+                self.current_line.pop(0)
+                check_func(self.parse_instr(inst))
+                break
 
         #  some instruction problems --> exit with error
         if not found: 
@@ -248,7 +275,7 @@ def read_args(args):
                 print("\nSkript typu filtr (parse.py v jazyce Python 3.10) načte ze standardního\n" 
                 "vstupu zdrojový kód v IPP- code24 (viz sekce 5), zkontroluje lexikální a syntaktickou\n" 
                 "správnost kódu a vypíše na standardní výstup XML reprezentaci programu\n")
-                exit_prog(0)
+                sys.exit(0)
 
 def main():
 
