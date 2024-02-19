@@ -3,7 +3,7 @@ import re
 import xml.etree.ElementTree as ET
 
 ERROR_MISSING_HEADER, ERROR_OPERATION_CODE, ERROR_OTHER, ERROR_ARGS = 21, 22, 23, 10
-
+READING_END = 5
 
 class ProcessedInstrunction:
     def __init__(self, order, opcode, arg_count = 3):
@@ -48,7 +48,7 @@ class ProcessedInstrunction:
        
         for num in range(1,self.arg_count):
             if not hasattr(self,f"arg{num}"):
-                ET.SubElement(self.instr_tree, 'arg{num}', type = self.args_types[num], text = self.args[num])
+                ET.SubElement(self.instr_tree, f'arg{num}', type = self.args_types[num], text = self.args[num])
             
     
     def get_instr_tree(self):
@@ -114,12 +114,13 @@ class Parser:
         "TF": 102
         }
 
-    def __init__(self, line = 0, frame = "GF", active_stdin = True, current_line = ""):
+    def __init__(self, line = 0, frame = "GF", active_stdin = True, current_line = "", language = 'IPPcode24'):
         self.line = line
         self.__frame = frame
         self.active_stdin = active_stdin
         self.current_line = current_line
         self.instr_num = 1
+        self.language = language
 
     @property
     def frame(self):
@@ -139,22 +140,18 @@ class Parser:
 
     def parse_const(self, current_instr, researched_word):
 
-        
         if re.fullmatch("^int@-?[0-9]*$", researched_word):
             current_instr.arg_set(self.cut_const(self.line[0]), "int")
-            print("writing int to xml")
+
         elif re.fullmatch("^bool@(bool|true)$", researched_word):
             current_instr.arg_set(self.cut_const(self.line[0]), "bool")
-            # write bool to xml
-            print("writing bool to xml")
+
         elif re.fullmatch(r"^string@.([\w]*[0-9]*(\\[0-9]{3})?))", researched_word):
             current_instr.arg_set(self.cut_const(self.line[0]), "string")
-            #write string to xml
-            print("writing string to xml")
+
         elif re.fullmatch("^nil@nil$", researched_word):
             current_instr.arg_set(self.cut_const(self.line[0]), "nil")
-            #write nil to xml
-            print("writing nil to xml")
+
 
     def parse_instr(self, instr_sample):
 
@@ -165,7 +162,7 @@ class Parser:
         const_pattern = re.compile(r"^(bool|nil|int|string)@[a-zA-Z_$&%*!?-][\S]*$")
 
         current_instr = ProcessedInstrunction(self.instr_num, instr_sample[0].upper())
-        xml_tree = ET.Element('program')
+        xml_tree = ET.Element('program', language = self.language)
         current_instr.create_instr_line(xml_tree)
        
         for key_word in instr_sample[1:]:
@@ -218,6 +215,8 @@ class Parser:
         
         current_instr.rec_to_instr_line()
         ET.ElementTree(xml_tree).write(sys.stdout, encoding='unicode')
+
+        return 0
                 
 
     def get_next_line(self):
@@ -229,12 +228,18 @@ class Parser:
 
         if tokens:    
             self.current_line = tokens.copy()
-            return True
+            return 0
 
-        return False    
+        return READING_END    
 
 
     def parse_line(self):
+
+        try:
+            a = self.current_line[0]
+            b = Parser.instruction_samples[0]
+        except IndexError:
+            return ERROR_OTHER
 
         # check for comment 
         if self.current_line[0].lower == "#": 
@@ -257,10 +262,17 @@ class Parser:
             return ERROR_OPERATION_CODE
         
         return 0
+    
+    def parse_header(self, header):
+        
+        if len(self.current_line) == 1 and self.current_line[0] == header:
+            return 0
+        else:
+            return ERROR_MISSING_HEADER
         
 
 def check_func(return_code):
-    if return_code != 0 and return_code != None:
+    if return_code >= 10:
         print(f"ERROR: {return_code}")
         sys.exit(return_code)
     else:
@@ -284,9 +296,11 @@ def main():
             if check_func(read_args(args)) is None:
                 sys.exit(0)
         
-        ipp24_parser = Parser(0,"GF", True, "")
+        ipp24_parser = Parser(0,'GF', True, '', 'IPPcode24')
         
-        while ipp24_parser.get_next_line() != False:
+        check_func(ipp24_parser.get_next_line())
+        check_func(ipp24_parser.parse_header('.IPPcode24'))
+        while check_func(ipp24_parser.get_next_line()) != READING_END:
             check_func(ipp24_parser.parse_line())
 
 
