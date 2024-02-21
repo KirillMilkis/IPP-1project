@@ -142,8 +142,6 @@ class Parser:
 
     def parse_instr_args(self, instr_sample):
 
-        researched_line = self.current_line
-
         label_pattern = re.compile(r"^[a-zA-Z$&%*!?-][\S]*$")
         var_pattern = re.compile(r"^(LF|TF|GF)@[a-zA-Z_$&%*!?-][\S]*$")
         const_pattern = re.compile(r"^(bool|nil|int|string)@[a-zA-Z_$&%*!?-][\S]*$")
@@ -154,48 +152,41 @@ class Parser:
         for key_word in instr_sample[1:]:
 
             try:
-                t = researched_line[0]
+                t = self.current_line[0]
             except IndexError:
                 return ERROR_OTHER
             
 
             if key_word == "var":
                 
-                if (re.fullmatch(var_pattern, researched_line[0])):
-                    current_instr.arg_set(researched_line[0], 'var')
-                    researched_line.pop(0)
+                if (re.fullmatch(var_pattern, self.current_line[0])):
+                    current_instr.arg_set(self.current_line[0], 'var')
+                    self.current_line.pop(0)
                     
                 else:
                     return ERROR_OTHER
 
             elif key_word == "symb":
                
-                if (re.fullmatch(const_pattern, researched_line[0])):
-                    self.parse_const(current_instr, researched_line[0])           
-                    researched_line.pop(0)
+                if (re.fullmatch(const_pattern, self.current_line[0])):
+                    self.parse_const(current_instr, self.current_line[0])           
+                    self.current_line.pop(0)
 
-                elif (re.fullmatch(var_pattern, researched_line[0])):
-                    current_instr.arg_set(researched_line[0], 'var')
-                    researched_line.pop(0)
+                elif (re.fullmatch(var_pattern, self.current_line[0])):
+                    current_instr.arg_set(self.current_line[0], 'var')
+                    self.current_line.pop(0)
 
                 else:
                     return ERROR_OTHER
                     
             elif key_word == "label":
 
-                if(re.fullmatch(label_pattern, researched_line[0])):
-                    current_instr.arg_set(researched_line[0], 'label')
-                    researched_line.pop(0)
+                if(re.fullmatch(label_pattern, self.current_line[0])):
+                    current_instr.arg_set(self.current_line[0], 'label')
+                    self.current_line.pop(0)
 
                 else:
                     return ERROR_OTHER
-                
-
-        if researched_line:
-            if researched_line[0] == "#":
-                return 0 
-            else:
-                return ERROR_OTHER 
                    
 
         return 0
@@ -216,45 +207,60 @@ class Parser:
         return READING_END
 
 
+    def is_comment(self):
+        if re.match(r"^#*", self.current_line[0]):
+            return True
+        else:
+            return False
+
     def parse_line(self):
-
-        # try:
-        #     a = self.current_line[0]
-        #     b = Parser.instruction_samples[0]
-        # except IndexError:
-        #     return ERROR_OTHER
-
-        # check for comment 
-        if self.current_line[0] == '#': 
+      
+        #check for header and comment after header
+        while not self.read_header:
+            if self.is_comment():
                 return 0
+            elif self.current_line[0] == self.language_header:
+                self.read_header = True
+                return 0
+            else:
+                return ERROR_MISSING_HEADER
 
         if not self.read_header:
             check_func(self.parse_header())
+            if self.current_line:
+                if self.is_comment():
+                    return 0
+                else:
+                    return ERROR_OTHER
             return 0
         
         # check for ipp24 instrunction_samples
-
         found = False
         for inst in Parser.instruction_samples:
 
             if self.current_line[0].lower() == inst[0].lower():
                 found = True
                 self.current_line.pop(0)
-                if self.current_line:
-                    check_func(self.parse_instr_args(inst))
+                check_func(self.parse_instr_args(inst))
                 self.instr_num+=1  
                 break
-
+        
+        #check for comment before or after opeeration code
+        if self.is_comment():
+            return 0
+        
         #  some instruction problems --> exit with error
         if not found: 
             return ERROR_OPERATION_CODE
+
         
         return 0
     
     def parse_header(self):
         
-        if len(self.current_line) == 1 and self.current_line[0] == self.language_header:
+        if  self.current_line[0] == self.language_header:
             self.read_header = True
+            self.current_line.pop(0)
             return 0
         else:
             return ERROR_MISSING_HEADER
