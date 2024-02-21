@@ -23,21 +23,11 @@ class ProcessedInstrunction:
         arg_xml_elem.text = self.arg_elem[self.arg_count-1][0]
 
     def create_instr_line(self, xml_tree):
-        self.instr_tree =  ET.SubElement(xml_tree, 'instruction', order = str(self.order), opcode = self.opcode)
-        # self.instr_tree.text = "\n"
-
-    # def rec_to_instr_line(self):
-       
-    #     # for num in range(0,self.arg_count):
-    #     #     if not hasattr(self,f"arg{num}"):
-    #     #         arg_element = ET.SubElement(self.instr_tree, f'arg{num}', type = self.args_types[num])
-    #     #         arg_element.text = self.args[num]
-            
+        self.instr_tree =  ET.SubElement(xml_tree, 'instruction', order = str(self.order), opcode = self.opcode)    
     
     def get_instr_tree(self):
         return self.instr_tree
-
-
+    
 
 class Parser:
 
@@ -90,6 +80,8 @@ class Parser:
         "LF": 101,
         "TF": 102
         }
+    
+    line_ = 0
 
     def __init__(self, line = 0, frame = "GF", active_stdin = True, current_line = "", language = 'IPPcode24', language_header = '.IPPcode24'):
         self.line_num = line
@@ -105,8 +97,6 @@ class Parser:
         self.xml_tree = ET.Element('program', language = self.language)
 
     def printXMLtree(self):
-        # ET.ElementTree(self.xml_tree).write(sys.stdout, encoding='unicode')
-        # print(ET.tostring(self.xml_tree, encoding='utf8').decode('utf8'))
         print(xml.dom.minidom.parseString(ET.tostring(self.xml_tree, encoding='utf-8')).toprettyxml(indent="    "))
 
     @property
@@ -212,59 +202,52 @@ class Parser:
             return True
         else:
             return False
+    
+    def parse_instr(self):
+         
+        for inst in Parser.instruction_samples:
+            if self.current_line[0].lower() == inst[0].lower():
+                self.current_line.pop(0)
+                check_func(self.parse_instr_args(inst))
+                self.instr_num+=1
+                return 0
+        
+        #  some instruction problems --> exit with error
+        return ERROR_OPERATION_CODE
 
     def parse_line(self):
       
-        #check for header and comment after header
-        while not self.read_header:
-            if self.is_comment():
-                return 0
-            elif self.current_line[0] == self.language_header:
-                self.read_header = True
-                return 0
-            else:
-                return ERROR_MISSING_HEADER
-
-        if not self.read_header:
-            check_func(self.parse_header())
-            if self.current_line:
+        # line parsing working with FSM
+        while len(self.current_line) > 0:
+            if self.parse_line_state == 0:
+                # <#> or <header>, other Error
+                if self.is_comment():
+                    return 0
+                elif self.current_line[0] == self.language_header:
+                    self.current_line.pop(0)
+                    self.parse_line_state = 1
+                else:
+                    return ERROR_MISSING_HEADER
+                
+            elif self.parse_line_state == 1:
+                # <#> or <op-code>, other Error
+                if self.is_comment():
+                    return 0
+                if re.match(r"^[A-Za-z]*", self.current_line[0].lower()):
+                    check_func(self.parse_instr())
+                    self.parse_line_state = 2
+                else:
+                    return ERROR_OPERATION_CODE
+                
+            elif self.parse_line_state == 2:
+                # <#>, other Error
                 if self.is_comment():
                     return 0
                 else:
                     return ERROR_OTHER
-            return 0
-        
-        # check for ipp24 instrunction_samples
-        found = False
-        for inst in Parser.instruction_samples:
-
-            if self.current_line[0].lower() == inst[0].lower():
-                found = True
-                self.current_line.pop(0)
-                check_func(self.parse_instr_args(inst))
-                self.instr_num+=1  
-                break
-        
-        #check for comment before or after opeeration code
-        if self.is_comment():
-            return 0
-        
-        #  some instruction problems --> exit with error
-        if not found: 
-            return ERROR_OPERATION_CODE
-
         
         return 0
-    
-    def parse_header(self):
-        
-        if  self.current_line[0] == self.language_header:
-            self.read_header = True
-            self.current_line.pop(0)
-            return 0
-        else:
-            return ERROR_MISSING_HEADER
-        
+
 
 def check_func(return_code):
     if return_code >= 10:
