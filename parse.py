@@ -81,12 +81,14 @@ class Parser:
         }
     
     parse_line_state = 0
+    process_line = ""
 
     def __init__(self, line = 0, frame = "GF", active_stdin = True, current_line = "", language = 'IPPcode24', language_header = '.IPPcode24'):
         self.line_num = line
         self.__frame = frame
         self.active_stdin = active_stdin
         self.read_header = False
+
         self.current_line = current_line
         self.instr_num = 1
         self.language = language
@@ -107,81 +109,91 @@ class Parser:
         self.__frame = self.frame_type[required_frame]
 
     def cut_const(self, const):
-        cutted_const = re.split('@', self.current_line[0], 1)
+        cutted_const = re.split('@', self.process_line[0], 1)
         if cutted_const[1]:
             return cutted_const[1]
         else:
-            return cutted_const[0]
+            return ""
 
+    def fix_problem_xml_symbols(self, string):
 
-    def parse_const(self, current_instr, researched_word):
+        # string = string.replace("<", "&lt;")
+        # string = string.replace(">", "&gt;")
+        # string = string.replace("&", "&amp;")
+        
 
-        if re.fullmatch("^int@-?[0-9]*$", researched_word) or re.fullmatch("^int@-?0x[0-9a-z]*$", researched_word):
-            current_instr.arg_set(self.cut_const(self.current_line[0]), "int")
+        return string
+            
 
-        elif re.fullmatch("^bool@(bool|true)$", researched_word):
-            current_instr.arg_set(self.cut_const(self.current_line[0]), "bool")
+    def parse_const(self, current_instr):
 
-        elif re.fullmatch(r"^string@.([\w]*[0-9]*(\\[0-9]{3})?)", researched_word):
-            current_instr.arg_set(self.cut_const(self.current_line[0]), "string")
+        if re.fullmatch("^int@-?[0-9]*$", self.process_line[0]) or re.fullmatch("^int@-?0[ox][0-9a-z]*$", self.process_line[0]):
+            current_instr.arg_set(self.cut_const(self.process_line[0]), "int")
 
-        elif re.fullmatch("^nil@nil$", researched_word):
-            current_instr.arg_set(self.cut_const(self.current_line[0]), "nil")
+        elif re.fullmatch("^bool@(bool|true)$", self.process_line[0]):
+            current_instr.arg_set(self.cut_const(self.process_line[0]), "bool")
+
+        elif re.fullmatch(r"^string@(.*(\\[0-9]{3})?)*$", self.process_line[0]):
+            self.process_line[0] = self.fix_problem_xml_symbols(self.cut_const(self.process_line[0]))
+            current_instr.arg_set(self.process_line[0], "string")
+
+        elif re.fullmatch("^nil@nil$", self.process_line[0]):
+            current_instr.arg_set(self.cut_const(self.process_line[0]), "nil")
 
 
     def parse_instr_args(self, instr_sample):
 
         label_pattern = re.compile(r"^[a-zA-Z$&%*!?-][\S]*")
         var_pattern = re.compile(r"^(LF|TF|GF)@[a-zA-Z_$&%*!?-][\S]*")
-        const_pattern = re.compile(r"^(bool|nil|int|string)@[a-zA-Z0-9_$&%*!?-][\S]*")
+        const_pattern = re.compile(r"^(bool|nil|int|string)@([a-zA-Z0-9_$&%*!?-][\S])*")
 
-        current_instr = ProcessedInstrunction(self.instr_num, instr_sample[0].upper(), len(self.current_line))
+        current_instr = ProcessedInstrunction(self.instr_num, instr_sample[0].upper(), len(self.process_line))
         current_instr.create_instr_line(self.xml_tree)
        
         for key_word in instr_sample[1:]:
 
             try:
-                t = self.current_line[0]
+                t = self.process_line[0]
             except IndexError:
                 return ERROR_OTHER
             
 
             if key_word == "var":
                 
-                if (re.match(var_pattern, self.current_line[0])):
-                    current_instr.arg_set(self.current_line[0], 'var')
-                    self.current_line.pop(0)
+                if (re.match(var_pattern, self.process_line[0])):
+                    current_instr.arg_set(self.process_line[0], 'var')
+                    self.process_line.pop(0)
                     
                 else:
                     return ERROR_OTHER
 
             elif key_word == "symb":
                
-                if (re.match(const_pattern, self.current_line[0])):
-                    self.parse_const(current_instr, self.current_line[0])           
-                    self.current_line.pop(0)
+                if (re.match(const_pattern, self.process_line[0])):
+                    self.parse_const(current_instr)           
+                    self.process_line.pop(0)
 
-                elif (re.match(var_pattern, self.current_line[0])):
-                    current_instr.arg_set(self.current_line[0], 'var')
-                    self.current_line.pop(0)
+                elif (re.match(var_pattern, self.process_line[0])):
+                    current_instr.arg_set(self.process_line[0], 'var')
+                    self.process_line.pop(0)
 
                 else:
                     return ERROR_OTHER
                     
             elif key_word == "label":
 
-                if(re.match(label_pattern, self.current_line[0])):
-                    current_instr.arg_set(self.current_line[0], 'label')
-                    self.current_line.pop(0)
+                if(re.match(label_pattern, self.process_line[0])):
+                    current_instr.arg_set(self.process_line[0], 'label')
+                    self.process_line.pop(0)
 
                 else:
                     return ERROR_OTHER
                 
             elif key_word == "type":
 
-                if (re.match(r"^(int|bool|string)$", self.current_line[0])):
-                    current_instr.arg_set(self.current_line[0], 'type')
-                    self.current_line.pop(0)
+                if (re.match(r"^(int|bool|string)$", self.process_line[0])):
+                    current_instr.arg_set(self.process_line[0], 'type')
+                    self.process_line.pop(0)
                    
 
         return 0
@@ -200,7 +212,7 @@ class Parser:
         
 
     def is_comment(self):
-        if re.match(r"^#", self.current_line[0]):
+        if re.match(r"^#", self.process_line[0]):
             return True
         else:
             return False
@@ -208,8 +220,8 @@ class Parser:
     def parse_instr(self):
          
         for inst in Parser.instruction_samples:
-            if self.current_line[0].lower() == inst[0].lower():
-                self.current_line.pop(0)
+            if self.process_line[0].lower() == inst[0].lower():
+                self.process_line.pop(0)
                 check_func(self.parse_instr_args(inst))
                 self.instr_num+=1
                 return 0
@@ -219,19 +231,21 @@ class Parser:
 
     def parse_line(self):
         
+        self.process_line = self.current_line
+
         if self.read_header:
             self.parse_line_state = 1
         else:
             self.parse_line_state = 0
         
         # line parsing working with FSM
-        while len(self.current_line) > 0:
+        while len(self.process_line) > 0:
             if self.parse_line_state == 0:
                 # <#> or <header>, other Error
                 if self.is_comment():
                     return 0
-                elif self.current_line[0] == self.language_header:
-                    self.current_line.pop(0)
+                elif self.process_line[0] == self.language_header:
+                    self.process_line.pop(0)
                     self.read_header = True
                     self.parse_line_state = 1
                 else:
@@ -241,7 +255,7 @@ class Parser:
                 # <#> or <op-code>, other Error
                 if self.is_comment():
                     return 0
-                if re.match(r"^[A-Za-z]*", self.current_line[0].lower()):
+                if re.match(r"^[A-Za-z]*", self.process_line[0].lower()):
                     check_func(self.parse_instr())
                     self.parse_line_state = 2
                 else:
