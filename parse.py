@@ -114,31 +114,29 @@ class Parser:
             return cutted_const[1]
         else:
             return ""
-
-    def fix_problem_xml_symbols(self, string):
-
-        # string = string.replace("<", "&lt;")
-        # string = string.replace(">", "&gt;")
-        # string = string.replace("&", "&amp;")
-        
-
-        return string
             
 
     def parse_const(self, current_instr):
 
-        if re.fullmatch("^int@-?[0-9]*$", self.process_line[0]) or re.fullmatch("^int@-?0[ox][0-9a-z]*$", self.process_line[0]):
+        if re.fullmatch("^int@-?[0-9]*$", self.process_line[0]) or re.fullmatch("^int@-?0[o][0-7]*$", self.process_line[0]) or re.fullmatch("^int@-?0[x][0-9a-fA-F]*$", self.process_line[0]):
             current_instr.arg_set(self.cut_const(self.process_line[0]), "int")
+            return 0
 
-        elif re.fullmatch("^bool@(bool|true)$", self.process_line[0]):
+        elif re.fullmatch("^bool@(false|true)$", self.process_line[0]):
             current_instr.arg_set(self.cut_const(self.process_line[0]), "bool")
+            return 0
 
-        elif re.fullmatch(r"^string@(.*(\\[0-9]{3})?)*$", self.process_line[0]):
-            self.process_line[0] = self.fix_problem_xml_symbols(self.cut_const(self.process_line[0]))
-            current_instr.arg_set(self.process_line[0], "string")
-
+        elif re.fullmatch(r"^string@([^\\]*(\\[0-9]{3})?)*$", self.process_line[0]):
+            # self.process_line[0] = self.fix_problem_xml_symbols(self.cut_const(self.process_line[0]))
+            current_instr.arg_set(self.cut_const(self.process_line[0]), "string")
+            return 0
+        
         elif re.fullmatch("^nil@nil$", self.process_line[0]):
             current_instr.arg_set(self.cut_const(self.process_line[0]), "nil")
+            return 0
+
+        else:
+            return ERROR_OTHER
 
 
     def parse_instr_args(self, instr_sample):
@@ -170,7 +168,7 @@ class Parser:
             elif key_word == "symb":
                
                 if (re.match(const_pattern, self.process_line[0])):
-                    self.parse_const(current_instr)           
+                    check_func(self.parse_const(current_instr))           
                     self.process_line.pop(0)
 
                 elif (re.match(var_pattern, self.process_line[0])):
@@ -194,6 +192,9 @@ class Parser:
                 if (re.match(r"^(int|bool|string)$", self.process_line[0])):
                     current_instr.arg_set(self.process_line[0], 'type')
                     self.process_line.pop(0)
+                
+                else:
+                    return ERROR_OTHER
                    
 
         return 0
@@ -207,6 +208,7 @@ class Parser:
             return READING_END
         
         self.current_line = next_line.split()
+        self.line_num+=1
 
         return 0
         
@@ -255,11 +257,11 @@ class Parser:
                 # <#> or <op-code>, other Error
                 if self.is_comment():
                     return 0
-                if re.match(r"^[A-Za-z]*", self.process_line[0].lower()):
+                if re.fullmatch(r"^[A-Za-z]*$", self.process_line[0].lower()):
                     check_func(self.parse_instr())
                     self.parse_line_state = 2
                 else:
-                    return ERROR_OPERATION_CODE
+                    return ERROR_OTHER
                 
             elif self.parse_line_state == 2:
                 # <#>, other Error
@@ -304,6 +306,10 @@ def main():
     while check_func(ipp24_parser.get_next_line()) != READING_END:
         if len(ipp24_parser.current_line) > 0:
             check_func(ipp24_parser.parse_line())
+    
+    if ipp24_parser.read_header == False:
+        print(r"ERROR: {ERROR_MISSING_HEADER}")
+        sys.exit(ERROR_MISSING_HEADER)
         
     ipp24_parser.printXMLtree()
 
