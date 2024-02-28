@@ -2,9 +2,9 @@ import sys
 import re
 import xml.etree.ElementTree as ET
 import xml.dom.minidom
+from enum import Enum
 
-ERROR_MISSING_HEADER, ERROR_OPERATION_CODE, ERROR_OTHER, ERROR_ARGS = 21, 22, 23, 10
-READING_END = 5
+ERROR_INPUT_ARGS = 10
 
 class ProcessedInstrunction:
     def __init__(self, order, opcode, arg_count):
@@ -68,28 +68,14 @@ class Parser:
         ['BREAK']
         ]
 
-    errors = {
-        "ERROR_MISSING_HEADER": 21,
-        "ERROR_OPERATION_CODE": 22,
-        "ERROR_OTHER": 23
-        }
-
-    frame_type = {
-        "GF": 100,
-        "LF": 101,
-        "TF": 102
-        }
+    ERROR_MISSING_HEADER, ERROR_OPERATION_CODE, ERROR_OTHER = 21
+    READING_END = 5
     
-    parse_line_state = 0
-    process_line = ""
-
-    def __init__(self, line = 0, frame = "GF", active_stdin = True, current_line = "", language = 'IPPcode24', language_header = '.IPPcode24'):
-        self.line_num = line
-        self.__frame = frame
-        self.active_stdin = active_stdin
+    def __init__(self, current_line = "", language = "IPPcode24", language_header = ".IPPcode24"):
         self.read_header = False
-
         self.current_line = current_line
+        self.parse_line_state = 0
+        self.process_line = ""
         self.instr_num = 1
         self.language = language
         self.language_header = language_header
@@ -100,21 +86,12 @@ class Parser:
     def printXMLtree(self):
         print(xml.dom.minidom.parseString(ET.tostring(self.xml_tree, encoding='utf-8')).toprettyxml(indent="    "))
 
-    @property
-    def frame(self):
-        return self.__frame
-
-    @frame.setter
-    def change_frame(self, required_frame):
-        self.__frame = self.frame_type[required_frame]
-
     def cut_const(self, const):
-        cutted_const = re.split('@', self.process_line[0], 1)
+        cutted_const = re.split('@', const, 1)
         if cutted_const[1]:
             return cutted_const[1]
         else:
             return ""
-            
 
     def parse_const(self, current_instr):
 
@@ -127,7 +104,6 @@ class Parser:
             return 0
 
         elif re.fullmatch(r"^string@([^\\]*(\\[0-9]{3})?)*$", self.process_line[0]):
-            # self.process_line[0] = self.fix_problem_xml_symbols(self.cut_const(self.process_line[0]))
             current_instr.arg_set(self.cut_const(self.process_line[0]), "string")
             return 0
         
@@ -136,13 +112,13 @@ class Parser:
             return 0
 
         else:
-            return ERROR_OTHER
+            return Parser.ERROR_OTHER
 
 
     def parse_instr_args(self, instr_sample):
 
-        label_pattern = re.compile(r"^[a-zA-Z$&%*!?-][\S]*")
-        var_pattern = re.compile(r"^(LF|TF|GF)@[a-zA-Z_$&%*!?-][\S]*")
+        label_pattern = re.compile(r"^([a-zA-Z$&%*!?-][\S])*$")
+        var_pattern = re.compile(r"^(LF|TF|GF)@([a-zA-Z_$&%*!?-][\S])*")
         const_pattern = re.compile(r"^(bool|nil|int|string)@([a-zA-Z0-9_$&%*!?-][\S])*")
 
         current_instr = ProcessedInstrunction(self.instr_num, instr_sample[0].upper(), len(self.process_line))
@@ -153,8 +129,7 @@ class Parser:
             try:
                 t = self.process_line[0]
             except IndexError:
-                return ERROR_OTHER
-            
+                return Parser.ERROR_OTHER
 
             if key_word == "var":
                 
@@ -163,7 +138,7 @@ class Parser:
                     self.process_line.pop(0)
                     
                 else:
-                    return ERROR_OTHER
+                    return Parser.ERROR_OTHER
 
             elif key_word == "symb":
                
@@ -176,7 +151,7 @@ class Parser:
                     self.process_line.pop(0)
 
                 else:
-                    return ERROR_OTHER
+                    return Parser.ERROR_OTHER
                     
             elif key_word == "label":
 
@@ -185,7 +160,7 @@ class Parser:
                     self.process_line.pop(0)
 
                 else:
-                    return ERROR_OTHER
+                    return Parser.ERROR_OTHER
                 
             elif key_word == "type":
 
@@ -194,7 +169,7 @@ class Parser:
                     self.process_line.pop(0)
                 
                 else:
-                    return ERROR_OTHER
+                    return Parser.ERROR_OTHER
                    
 
         return 0
@@ -205,14 +180,12 @@ class Parser:
         next_line = sys.stdin.readline()
        
         if next_line == "":
-            return READING_END
+            return Parser.READING_END
         
         self.current_line = next_line.split()
-        self.line_num+=1
 
         return 0
         
-
     def is_comment(self):
         if re.match(r"^#", self.process_line[0]):
             return True
@@ -229,7 +202,7 @@ class Parser:
                 return 0
         
         #  some instruction problems --> exit with error
-        return ERROR_OPERATION_CODE
+        return Parser.ERROR_OPERATON_CODE
 
     def parse_line(self):
         
@@ -251,7 +224,7 @@ class Parser:
                     self.read_header = True
                     self.parse_line_state = 1
                 else:
-                    return ERROR_MISSING_HEADER
+                    return Parser.ERROR_MISSING_HEADER
                 
             elif self.parse_line_state == 1:
                 # <#> or <op-code>, other Error
@@ -261,14 +234,14 @@ class Parser:
                     check_func(self.parse_instr())
                     self.parse_line_state = 2
                 else:
-                    return ERROR_OTHER
+                    return Parser.ERROR_OTHER
                 
             elif self.parse_line_state == 2:
                 # <#>, other Error
                 if self.is_comment():
                     return 0
                 else:
-                    return ERROR_OTHER
+                    return Parser.ERROR_OTHER
         
        
         return 0
@@ -285,32 +258,34 @@ def check_func(return_code):
 def read_args(args):
     
     if (args[1] != '--help') or (args[1] == '--help' and len(args) > 2):
-        return ERROR_ARGS
+        return ERROR_INPUT_ARGS
     elif args[1] == '--help':
         print("\nSkript typu filtr (parse.py v jazyce Python 3.10) načte ze standardního\n" 
-        "vstupu zdrojový kód v IPP- code24 (viz sekce 5), zkontroluje lexikální a syntaktickou\n" 
+        "vstupu zdrojový kód v IPP-code24, zkontroluje lexikální a syntaktickou\n" 
         "správnost kódu a vypíše na standardní výstup XML reprezentaci programu\n")
         sys.exit(0)
 
 def main():
-
+    # read arguments
     args = sys.argv
     if len(args) > 1:
         if check_func(read_args(args)) is None:
             sys.exit(0)
-    
-    ipp24_parser = Parser(0,'GF', True, '', 'IPPcode24')
+    # init parser for ippcode24
+    ipp24_parser = Parser('', 'IPPcode24', '.IPPcode24')
 
+    # create XML tree
     ipp24_parser.createXMLtree()
-    
-    while check_func(ipp24_parser.get_next_line()) != READING_END:
+
+    # read lines in loop and then if the line is not empty, parse it
+    while check_func(ipp24_parser.get_next_line()) != Parser.READING_END:
         if len(ipp24_parser.current_line) > 0:
             check_func(ipp24_parser.parse_line())
-    
-    if ipp24_parser.read_header == False:
-        print(r"ERROR: {ERROR_MISSING_HEADER}")
-        sys.exit(ERROR_MISSING_HEADER)
-        
+    # if header is missing 
+    # if ipp24_parser.read_header == False:
+    #     print(r"ERROR: 21 - Missing header")
+    #     sys.exit(Parser.ERROR_MISSING_HEADER)
+    # print XML after parsing
     ipp24_parser.printXMLtree()
 
 
