@@ -5,6 +5,9 @@ import xml.dom.minidom
 from enum import Enum
 
 ERROR_INPUT_ARGS = 10
+INTERNAL_ERROR = 99
+ERROR_OUTPUT_FILES = 12
+ERROR_INPUT_FILES = 11
 
 class ProcessedInstrunction:
     def __init__(self, order, opcode, arg_count):
@@ -15,13 +18,15 @@ class ProcessedInstrunction:
         self.instr_tree = None
 
     def arg_set(self, arg, arg_type):
+        # Add new argument into the branch with one instruction
         self.args.append([arg,arg_type])
-
         self.arg_count+=1
+
         arg_xml_elem = ET.SubElement(self.instr_tree, f'arg{self.arg_count}', type = self.args[self.arg_count-1][1])
         arg_xml_elem.text = self.args[self.arg_count-1][0]
 
     def create_instr_line(self, xml_tree):
+        # Create new instruction branch in the XML tree
         self.instr_tree =  ET.SubElement(xml_tree, 'instruction', order = str(self.order), opcode = self.opcode)    
     
     def get_instr_tree(self):
@@ -29,7 +34,6 @@ class ProcessedInstrunction:
     
 
 class Parser:
-
     instruction_samples = [
         ['MOVE', 'var', 'symb'],
         ['CREATEFRAME'],
@@ -68,34 +72,48 @@ class Parser:
         ['BREAK']
         ]
 
-    ERROR_MISSING_HEADER, ERROR_OPERATION_CODE, ERROR_OTHER = 21
+    ERROR_MISSING_HEADER, ERROR_OPERATION_CODE, ERROR_OTHER = 21, 22, 23
     READING_END = 5
-    
-    def __init__(self, current_line = "", language = "IPPcode24", language_header = ".IPPcode24"):
-        self.read_header = False
+
+    def __init__(self, language , language_header, read_header, current_line, instr_num):
+        self.instr_num = instr_num
+        self.read_header = read_header
         self.current_line = current_line
-        self.parse_line_state = 0
-        self.process_line = ""
-        self.instr_num = 1
         self.language = language
         self.language_header = language_header
+        self.process_line = ""
+        self.parse_line_state = 0
         
     def createXMLtree(self):
-        self.xml_tree = ET.Element('program', language = self.language)
+        self.xml_tree = ET.Element("program", language = self.language)
 
     def printXMLtree(self):
         print(xml.dom.minidom.parseString(ET.tostring(self.xml_tree, encoding='utf-8')).toprettyxml(indent="    "))
 
-    def cut_const(self, const):
+    @staticmethod
+    def cut_const(const):
+        #Method return 2 part of the const, after @
         cutted_const = re.split('@', const, 1)
         if cutted_const[1]:
             return cutted_const[1]
         else:
             return ""
 
-    def parse_const(self, current_instr):
+    @staticmethod    
+    def cut_comment(operand):
+        # Method split operand and comment if they dont have space between
+        # Return list with operand and comment
+        splitted_list = re.split("#", operand)
+        if(len(splitted_list) > 1):
+            splitted_list[1] = "#" + splitted_list[1]
+        splitted_list = list(filter(None, splitted_list))
+        return splitted_list
 
-        if re.fullmatch("^int@-?[0-9]*$", self.process_line[0]) or re.fullmatch("^int@-?0[o][0-7]*$", self.process_line[0]) or re.fullmatch("^int@-?0[x][0-9a-fA-F]*$", self.process_line[0]):
+    def parse_const(self, current_instr):
+        # Choose right constant pattern for parsing
+        if (re.fullmatch("^int@[-+]?[0-9]+$", self.process_line[0]) or 
+            re.fullmatch("^int@[-+]?0[o][0-7]+$", self.process_line[0]) or 
+            re.fullmatch("^int@[-+]?0[x][0-9a-fA-F]+$", self.process_line[0])):
             current_instr.arg_set(self.cut_const(self.process_line[0]), "int")
             return 0
 
@@ -103,80 +121,79 @@ class Parser:
             current_instr.arg_set(self.cut_const(self.process_line[0]), "bool")
             return 0
 
-        elif re.fullmatch(r"^string@([^\\]*(\\[0-9]{3})?)*$", self.process_line[0]):
+        elif re.fullmatch(r"^string@([^\\#]*(\\[0-9]{3})?)+$", self.process_line[0]):
             current_instr.arg_set(self.cut_const(self.process_line[0]), "string")
             return 0
         
         elif re.fullmatch("^nil@nil$", self.process_line[0]):
             current_instr.arg_set(self.cut_const(self.process_line[0]), "nil")
             return 0
-
+        
+        # If constant has wrong format return error
         else:
             return Parser.ERROR_OTHER
-
+    
 
     def parse_instr_args(self, instr_sample):
+        # Regex patterns for all types of arguments
+        label_pattern = re.compile(r"^[a-zA-Z_$&%*!?-][\w\d_$&%*!?-]+$")
+        var_pattern = re.compile(r"^(LF|TF|GF)@[a-zA-Z_$&%*!?-][\w\d_$&%*!?-]*")
+        const_pattern = re.compile(r"^(bool|nil|int|string)@[\S]*")
 
-        label_pattern = re.compile(r"^([a-zA-Z$&%*!?-][\S])*$")
-        var_pattern = re.compile(r"^(LF|TF|GF)@([a-zA-Z_$&%*!?-][\S])*")
-        const_pattern = re.compile(r"^(bool|nil|int|string)@([a-zA-Z0-9_$&%*!?-][\S])*")
-
+        # Create new processed instruction class
         current_instr = ProcessedInstrunction(self.instr_num, instr_sample[0].upper(), len(self.process_line))
         current_instr.create_instr_line(self.xml_tree)
-       
-        for key_word in instr_sample[1:]:
 
-            try:
-                t = self.process_line[0]
-            except IndexError:
+        # Iterate through all arguments and check if they are correct
+        # Set every new argument into the processed instruction
+        for word_num in range(1, len(instr_sample)):
+        
+            if not len(self.process_line):
                 return Parser.ERROR_OTHER
-
-            if key_word == "var":
-                
+            
+            # If there is one operand left there might be a comment without space
+            if len(instr_sample)-1 == word_num:
+                temp_list = self.cut_comment(self.process_line[0])
+                self.process_line.pop(0)
+                self.process_line = temp_list + self.process_line
+            
+            if instr_sample[word_num] == "var":
                 if (re.match(var_pattern, self.process_line[0])):
                     current_instr.arg_set(self.process_line[0], 'var')
                     self.process_line.pop(0)
-                    
                 else:
                     return Parser.ERROR_OTHER
-
-            elif key_word == "symb":
-               
+                
+            elif instr_sample[word_num] == "symb":
                 if (re.match(const_pattern, self.process_line[0])):
+                    # Separetely check if the constant is correct in other method
                     check_func(self.parse_const(current_instr))           
                     self.process_line.pop(0)
-
                 elif (re.match(var_pattern, self.process_line[0])):
                     current_instr.arg_set(self.process_line[0], 'var')
                     self.process_line.pop(0)
-
                 else:
                     return Parser.ERROR_OTHER
                     
-            elif key_word == "label":
-
+            elif instr_sample[word_num] == "label":
                 if(re.match(label_pattern, self.process_line[0])):
                     current_instr.arg_set(self.process_line[0], 'label')
                     self.process_line.pop(0)
-
                 else:
                     return Parser.ERROR_OTHER
                 
-            elif key_word == "type":
-
-                if (re.match(r"^(int|bool|string)$", self.process_line[0])):
+            elif instr_sample[word_num] == "type":
+                if (re.match("^(int|bool|string)$", self.process_line[0])):
                     current_instr.arg_set(self.process_line[0], 'type')
                     self.process_line.pop(0)
-                
                 else:
                     return Parser.ERROR_OTHER
+            
                    
-
         return 0
                 
-
     def get_next_line(self):
-
+        # Read line and split it into list of words
         next_line = sys.stdin.readline()
        
         if next_line == "":
@@ -185,15 +202,17 @@ class Parser:
         self.current_line = next_line.split()
 
         return 0
-        
-    def is_comment(self):
-        if re.match(r"^#", self.process_line[0]):
+    
+    @staticmethod
+    def is_comment(string):
+        # Comment test
+        if re.match(r"^#", string):
             return True
         else:
             return False
-    
+            
     def parse_instr(self):
-         
+        # Iterate through all instructions and find the right one
         for inst in Parser.instruction_samples:
             if self.process_line[0].lower() == inst[0].lower():
                 self.process_line.pop(0)
@@ -201,23 +220,29 @@ class Parser:
                 self.instr_num+=1
                 return 0
         
-        #  some instruction problems --> exit with error
-        return Parser.ERROR_OPERATON_CODE
+        # Some instruction problems --> exit with error
+        return Parser.ERROR_OPERATION_CODE
 
     def parse_line(self):
-        
+        # Save original current_line and change only process_line
         self.process_line = self.current_line
 
+        # Based on header presence, set the state of parsing
         if self.read_header:
             self.parse_line_state = 1
         else:
             self.parse_line_state = 0
+            # After header might be a comment without space
+            if not self.is_comment(self.process_line[0]):
+                tmp_list = self.cut_comment(self.process_line[0])
+                self.process_line.pop(0)
+                self.process_line = tmp_list + self.process_line
         
-        # line parsing working with FSM
+        # Line parsing working with FSM
         while len(self.process_line) > 0:
             if self.parse_line_state == 0:
                 # <#> or <header>, other Error
-                if self.is_comment():
+                if self.is_comment(self.process_line[0]):
                     return 0
                 elif self.process_line[0] == self.language_header:
                     self.process_line.pop(0)
@@ -228,9 +253,9 @@ class Parser:
                 
             elif self.parse_line_state == 1:
                 # <#> or <op-code>, other Error
-                if self.is_comment():
+                if self.is_comment(self.process_line[0]):
                     return 0
-                if re.fullmatch(r"^[A-Za-z]*$", self.process_line[0].lower()):
+                if re.fullmatch(r"^[A-Za-z2]*$", self.process_line[0].lower()):
                     check_func(self.parse_instr())
                     self.parse_line_state = 2
                 else:
@@ -238,16 +263,16 @@ class Parser:
                 
             elif self.parse_line_state == 2:
                 # <#>, other Error
-                if self.is_comment():
+                if self.is_comment(self.process_line[0]):
                     return 0
                 else:
                     return Parser.ERROR_OTHER
         
-       
         return 0
 
 
 def check_func(return_code):
+    # Handle return codes from methods and function which can return error codes
     if return_code >= 10:
         print(f"ERROR: {return_code}")
         sys.exit(return_code)
@@ -256,43 +281,36 @@ def check_func(return_code):
 
 
 def read_args(args):
-    
     if (args[1] != '--help') or (args[1] == '--help' and len(args) > 2):
         return ERROR_INPUT_ARGS
     elif args[1] == '--help':
-        print("\nSkript typu filtr (parse.py v jazyce Python 3.10) načte ze standardního\n" 
-        "vstupu zdrojový kód v IPP-code24, zkontroluje lexikální a syntaktickou\n" 
-        "správnost kódu a vypíše na standardní výstup XML reprezentaci programu\n")
+        print("\nA script of type filter (parse.py in Python 3.10) reads from the standard\n" 
+        "input source code in IPP-code24, checks lexical and syntactic\n" 
+        "the correctness of the code and prints the XML representation of the program to the standard output\n")
         sys.exit(0)
 
+
 def main():
-    # read arguments
+    # Read arguments
     args = sys.argv
     if len(args) > 1:
         if check_func(read_args(args)) is None:
             sys.exit(0)
-    # init parser for ippcode24
-    ipp24_parser = Parser('', 'IPPcode24', '.IPPcode24')
+    # Init parser for ippcode24
+    ipp24_parser = Parser('IPPcode24', '.IPPcode24', False, "", 1)
 
-    # create XML tree
+    # Create XML tree
     ipp24_parser.createXMLtree()
 
-    # read lines in loop and then if the line is not empty, parse it
+    # Read lines in loop and then if the line is not empty, parse it
     while check_func(ipp24_parser.get_next_line()) != Parser.READING_END:
+
         if len(ipp24_parser.current_line) > 0:
             check_func(ipp24_parser.parse_line())
-    # if header is missing 
-    # if ipp24_parser.read_header == False:
-    #     print(r"ERROR: 21 - Missing header")
-    #     sys.exit(Parser.ERROR_MISSING_HEADER)
-    # print XML after parsing
+   
+    # Print XML after parsing
     ipp24_parser.printXMLtree()
 
 
-main()
-
-
-
-
-
-
+if __name__ == "__main__":
+    main()
