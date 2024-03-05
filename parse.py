@@ -9,32 +9,7 @@ INTERNAL_ERROR = 99
 ERROR_OUTPUT_FILES = 12
 ERROR_INPUT_FILES = 11
 
-class ProcessedInstrunction:
-    def __init__(self, order, opcode, arg_count):
-        self.order = order
-        self.opcode = opcode
-        self.args = []
-        self.arg_count = 0
-        self.instr_tree = None
-
-    def arg_set(self, arg, arg_type):
-        # Add new argument into the branch with one instruction
-        self.args.append([arg,arg_type])
-        self.arg_count+=1
-
-        arg_xml_elem = ET.SubElement(self.instr_tree, f'arg{self.arg_count}', type = self.args[self.arg_count-1][1])
-        arg_xml_elem.text = self.args[self.arg_count-1][0]
-
-    def create_instr_line(self, xml_tree):
-        # Create new instruction branch in the XML tree
-        self.instr_tree =  ET.SubElement(xml_tree, 'instruction', order = str(self.order), opcode = self.opcode)    
-    
-    def get_instr_tree(self):
-        return self.instr_tree
-    
-
-class Parser:
-    instruction_samples = [
+instruction_samples = [
         ['MOVE', 'var', 'symb'],
         ['CREATEFRAME'],
         ['PUSHFRAME'],
@@ -72,10 +47,37 @@ class Parser:
         ['BREAK']
         ]
 
+class ProcessedInstrunction:
+    def __init__(self, order, opcode, arg_count):
+        self.order = order
+        self.opcode = opcode
+        self.args = []
+        self.arg_count = 0
+        self.instr_tree = None
+
+    def arg_set(self, arg, arg_type):
+        # Add new argument into the branch with one instruction
+        self.args.append([arg,arg_type])
+        self.arg_count+=1
+
+        arg_xml_elem = ET.SubElement(self.instr_tree, f'arg{self.arg_count}', type = self.args[self.arg_count-1][1])
+        arg_xml_elem.text = self.args[self.arg_count-1][0]
+
+    def create_instr_line(self, xml_tree):
+        # Create new instruction branch in the XML tree
+        self.instr_tree =  ET.SubElement(xml_tree, 'instruction', order = str(self.order), opcode = self.opcode)    
+    
+    def get_instr_tree(self):
+        return self.instr_tree
+    
+
+class Parser:
+
     ERROR_MISSING_HEADER, ERROR_OPERATION_CODE, ERROR_OTHER = 21, 22, 23
     READING_END = 5
 
-    def __init__(self, language , language_header, read_header, current_line, instr_num):
+    def __init__(self, language , language_header, read_header, current_line, instr_num, instr_samples):
+        self.parser_instr_samples = instr_samples
         self.instr_num = instr_num
         self.read_header = read_header
         self.current_line = current_line
@@ -213,7 +215,7 @@ class Parser:
             
     def parse_instr(self):
         # Iterate through all instructions and find the right one
-        for inst in Parser.instruction_samples:
+        for inst in self.parser_instr_samples:
             if self.process_line[0].lower() == inst[0].lower():
                 self.process_line.pop(0)
                 check_func(self.parse_instr_args(inst))
@@ -296,15 +298,15 @@ def main():
     if len(args) > 1:
         if check_func(read_args(args)) is None:
             sys.exit(0)
+
     # Init parser for ippcode24
-    ipp24_parser = Parser('IPPcode24', '.IPPcode24', False, "", 1)
+    ipp24_parser = Parser('IPPcode24', '.IPPcode24', False, "", 1, instruction_samples)
 
     # Create XML tree
     ipp24_parser.createXMLtree()
 
     # Read lines in loop and then if the line is not empty, parse it
     while check_func(ipp24_parser.get_next_line()) != Parser.READING_END:
-
         if len(ipp24_parser.current_line) > 0:
             check_func(ipp24_parser.parse_line())
    
