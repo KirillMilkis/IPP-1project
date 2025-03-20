@@ -48,7 +48,7 @@ instruction_samples = [
         ]
 
 class ProcessedInstrunction:
-    def __init__(self, order, opcode, arg_count):
+    def __init__(self, order, opcode):
         self.order = order
         self.opcode = opcode
         self.args = []
@@ -63,7 +63,7 @@ class ProcessedInstrunction:
         arg_xml_elem = ET.SubElement(self.instr_tree, f'arg{self.arg_count}', type = self.args[self.arg_count-1][1])
         arg_xml_elem.text = self.args[self.arg_count-1][0]
 
-    def create_instr_line(self, xml_tree):
+    def create_instr_branch(self, xml_tree):
         # Create new instruction branch in the XML tree
         self.instr_tree =  ET.SubElement(xml_tree, 'instruction', order = str(self.order), opcode = self.opcode)    
     
@@ -143,8 +143,8 @@ class Parser:
         const_pattern = re.compile(r"^(bool|nil|int|string)@[\S]*")
 
         # Create new processed instruction class
-        current_instr = ProcessedInstrunction(self.instr_num, instr_sample[0].upper(), len(self.process_line))
-        current_instr.create_instr_line(self.xml_tree)
+        current_instr = ProcessedInstrunction(self.instr_num, instr_sample[0].upper())
+        current_instr.create_instr_branch(self.xml_tree)
 
         # Iterate through all arguments and check if they are correct
         # Set every new argument into the processed instruction
@@ -229,7 +229,7 @@ class Parser:
         # Save original current_line and change only process_line
         self.process_line = self.current_line
 
-        # Based on header presence, set the state of parsing
+        # Based on header presence, set the state of parsing in FSM
         if self.read_header:
             self.parse_line_state = 1
         else:
@@ -249,6 +249,8 @@ class Parser:
                 elif self.process_line[0] == self.language_header:
                     self.process_line.pop(0)
                     self.read_header = True
+                    # State switch to state 1 but there more likely end of the line
+                    # This code line is more for clarity
                     self.parse_line_state = 1
                 else:
                     return Parser.ERROR_MISSING_HEADER
@@ -259,6 +261,8 @@ class Parser:
                     return 0
                 if re.fullmatch(r"^[A-Za-z2]*$", self.process_line[0].lower()):
                     check_func(self.parse_instr())
+                    # State switch to state 2 but there might be end of the line
+                    # In these case (line end) loop ends on state 1
                     self.parse_line_state = 2
                 else:
                     return Parser.ERROR_OTHER
@@ -287,8 +291,8 @@ def read_args(args):
         return ERROR_INPUT_ARGS
     elif args[1] == '--help':
         print("\nA script of type filter (parse.py in Python 3.10) reads from the standard\n" 
-        "input source code in IPP-code24, checks lexical and syntactic\n" 
-        "the correctness of the code and prints the XML representation of the program to the standard output\n")
+        "input source code in IPP-code24, checks lexical and syntactic, the correctness of the code\n" 
+        "and prints the XML representation of the program to the standard output\n")
         sys.exit(0)
 
 

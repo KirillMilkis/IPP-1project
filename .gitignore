@@ -1,5 +1,6 @@
 /tests
 /.vscode
+.vscode
 /.DS_Store
 p.py
 /parse
